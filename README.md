@@ -49,9 +49,22 @@ En la PC, Web Bluetooth funciona en `localhost` con Chrome o Edge, y puedes prob
 
 ## Publicar en GitHub Pages
 
-1. Sube el repo a GitHub. En el plan gratuito, Pages solo funciona con repos públicos.
-2. Ve a **Settings → Pages → Source: GitHub Actions**.
-3. Cada push a `main` que toque `reloj/` publica en `https://<usuario>.github.io/<repo>/`, mediante el workflow `.github/workflows/reloj-pages.yml`. También puedes lanzarlo a mano desde Actions.
+El código se desarrolla en `reloj/`, dentro del repo privado de Mastira. Se publica en un **repo público aparte**, `reloj-ajedrez`, que contiene solo esta carpeta. Así Mastira sigue siendo privado.
+
+**Configuración inicial (una sola vez):**
+1. En GitHub crea un repo **público** vacío, `reloj-ajedrez`, sin README.
+2. En el repo nuevo ve a **Settings → Pages → Source: GitHub Actions**.
+3. Desde la raíz del repo Mastira, registra el remoto:
+   ```bash
+   git remote add reloj https://github.com/<usuario>/reloj-ajedrez.git
+   ```
+
+**Publicar** (cada vez que quieras actualizar). Desde la raíz de Mastira, con los cambios ya en `main`:
+```bash
+git subtree push --prefix=reloj reloj main
+```
+
+El workflow `.github/workflows/pages.yml` se ejecuta en el repo nuevo y publica en `https://<usuario>.github.io/reloj-ajedrez/`.
 
 ## Configuración de la Bigme B7
 
