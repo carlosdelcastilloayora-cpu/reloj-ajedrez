@@ -7,7 +7,7 @@ Reloj de ajedrez inteligente para tinta electrónica (Bigme B7) con tablero Ches
 | Fase | Contenido | Estado |
 |---|---|---|
 | 1 | Reloj en pantalla + Chessnut Go + botones por teclado | ✅ |
-| 2 | Modo Lichess (IA, retos, lobby) | pendiente |
+| 2 | Modo Lichess (IA, retos, lobby) | ✅ |
 | 3 | Modo offline con Stockfish + service worker | pendiente |
 | 4 | Firmware ESP32 | pendiente |
 | 5 | Historial PGN, importación a Lichess, voz, servo | pendiente |
@@ -21,6 +21,9 @@ src/
   clock/clock.ts      reloj puro: incremento Fischer, demora simple, pausa, sync con servidor
   game/session.ts     flujo: jugada pendiente → botón confirma → cambia reloj; fin de partida
   input/keys.ts       a = botón izquierdo · l = botón derecho · p = pausa/menú
+  lichess/api.ts      cliente Board API: streams ndjson con watchdog, ritmos permitidos, enroque e1h1→e1g1
+  lichess/auth.ts     login OAuth PKCE (sin secreto) o token personal
+  lichess/online.ts   cuenta, stream de eventos, retos/IA/lobby, stream de la partida, reconexión
   eink/eink.ts        limpieza negro→blanco, Wake Lock, pantalla completa, pitido
   ui/                 Setup, ClockScreen (dígitos escritos directo al DOM), overlays
 ```
@@ -111,6 +114,45 @@ El teclado (`A` / `L` / `P`) funciona en los dos modos.
 **C. Pantalla**
 - La opción *Limpiar tras cada jugada* o *Limpiar cada N s* hace un flash negro→blanco. El botón *Limpiar* de la barra superior hace lo mismo a mano.
 - La pantalla no debe apagarse durante la partida (Wake Lock).
+
+## Cómo probar la Fase 2 (Lichess) en la Bigme
+
+**1. Iniciar sesión** (una sola vez; el token queda guardado en la tablet)
+- **Opción A, *Iniciar sesión con Lichess*:** te lleva a lichess.org. Autoriza y vuelves a la app ya conectado. Si la app está instalada en la pantalla principal, puede que la vuelta se abra en Chrome; cierra esa pestaña y abre de nuevo la app: la sesión ya está guardada.
+- **Opción B, *Usar token personal*:** abre *Crear token en Lichess ↗*, que ya trae marcados los permisos `board:play` y `challenge:write`. Crea el token, cópialo y pégalo en la app.
+
+Cuando la conexión está lista, el panel dice `TuUsuario · en línea`.
+
+**2. Primera partida contra la IA**
+1. Conecta el Chessnut y pon las piezas en la posición inicial.
+2. Elige *Lichess (en línea)* → *IA de Lichess* → nivel 1 → color *Blancas* → ritmo **10+5** → *Jugar contra la IA*.
+3. La partida empieza sola. Arriba aparecen los nombres: tú y "IA Lichess nivel 1".
+4. Mueve en el tablero y toca tu lado del reloj (o pulsa tu botón). La jugada se envía a Lichess.
+5. Cuando juega la IA:
+   - Suena un pitido.
+   - Abajo aparece *Juega el rival — reprodúcela en el tablero*, con la jugada en grande (por ejemplo "1… Cc6 b8→c6").
+   - El minitablero marca las casillas y los LEDs del Chessnut se encienden en origen y destino.
+6. Reproduce la jugada en el tablero. Hasta que el tablero coincida, la app no deja hacer tu siguiente jugada.
+7. Abre lichess.org en otro dispositivo, si quieres comprobar que la partida es real.
+
+**3. Qué más probar**
+- **Menú (`P` o *☰ Menú*):**
+  - Ofrecer tablas.
+  - Rendirse (pide confirmación).
+  - Abortar, si todavía no hay jugadas.
+  - Salir: la partida sigue en Lichess; al volver aparece en *Partidas en curso → Continuar*.
+- **Retar a un amigo o bot:** *Retar a usuario o bot* → escribe el nombre → *Retar a…*. El reto sigue abierto hasta que lo acepte, lo rechace o lo canceles.
+- **Lobby:** *Buscar en el lobby* (solo rápidas y clásicas, por ejemplo 10+0 o 15+10).
+- **Partida creada desde otra app:** si inicias una partida con tablero desde la app de Lichess, el reloj la detecta y entra solo.
+- **Retos que te envían:** aparecen en *Retos recibidos*, con botones *Aceptar* y *Rechazar*.
+- **Sin red:** apaga el Wi-Fi unos segundos. Arriba aparece *Lichess · reconectando…* y al volver la red se recupera la partida. Mientras tanto el reloj de Lichess sigue corriendo: el servidor manda.
+- **Ritmos bloqueados:** bullet nunca se permite; blitz solo contra la IA o en retos. El botón se desactiva y la app explica el motivo.
+
+**Reglas del modo en línea**
+- El tiempo oficial lo lleva Lichess. La app sincroniza con cada actualización del servidor y cuenta hacia atrás entre una y otra.
+- El menú no detiene el reloj, y no se puede deshacer una jugada (solo aceptar el deshacer que pida el rival).
+- Si se desconecta el tablero, el reloj NO se pausa; solo suena un aviso.
+- Durante una partida en línea el motor está bloqueado (`onlineLocked()`). El análisis llegará en la Fase 3, solo para partidas offline.
 
 ### Probar desde la PC en la red local (opcional)
 

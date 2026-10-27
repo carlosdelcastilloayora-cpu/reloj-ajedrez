@@ -1,6 +1,7 @@
 import { useGame } from '../game/session'
 import { enterFullscreen } from '../eink/eink'
 import BoardPanel from './BoardPanel'
+import LichessPanel, { LichessStart } from './LichessPanel'
 import { useEffect, useState } from 'react'
 import { listenButtons, type ButtonId } from '../input/keys'
 
@@ -57,13 +58,15 @@ export default function Setup() {
         <div className="row">
           <button className={s.mode === 'board' ? 'sel' : ''} onClick={() => set({ mode: 'board' })}>Dos jugadores con tablero</button>
           <button className={s.mode === 'clock' ? 'sel' : ''} onClick={() => set({ mode: 'clock' })}>Solo reloj</button>
-          <button disabled>Lichess (fase 2)</button>
+          <button className={s.mode === 'lichess' ? 'sel' : ''} onClick={() => set({ mode: 'lichess' })}>Lichess (en línea)</button>
           <button disabled>Stockfish (fase 3)</button>
         </div>
       </section>
 
+      {s.mode === 'lichess' && <LichessPanel />}
+
       <section>
-        <h2>Ritmo: {s.baseMin}+{s.incSec}{s.delaySec ? ` · demora ${s.delaySec}s` : ''}</h2>
+        <h2>Ritmo: {s.baseMin}+{s.incSec}{s.delaySec && s.mode !== 'lichess' ? ` · demora ${s.delaySec}s` : ''}</h2>
         <div className="grid-btn">
           {PRESETS.map(([m, i]) => (
             <button key={`${m}+${i}`} className={s.baseMin === m && s.incSec === i ? 'sel' : ''}
@@ -73,7 +76,7 @@ export default function Setup() {
         <div className="row" style={{ marginTop: 12 }}>
           <Stepper label="Minutos" value={s.baseMin} min={1} max={180} step={minStep} unit="min" onChange={v => set({ baseMin: v })} />
           <Stepper label="Incremento" value={s.incSec} min={0} max={60} step={() => 1} unit="s" onChange={v => set({ incSec: v })} />
-          <Stepper label="Demora" value={s.delaySec} min={0} max={30} step={() => 1} unit="s" onChange={v => set({ delaySec: v })} />
+          {s.mode !== 'lichess' && <Stepper label="Demora" value={s.delaySec} min={0} max={30} step={() => 1} unit="s" onChange={v => set({ delaySec: v })} />}
         </div>
       </section>
 
@@ -83,17 +86,25 @@ export default function Setup() {
           <button className={s.input === 'touch' ? 'sel' : ''} onClick={() => set({ input: 'touch' })}>En la pantalla de la tablet</button>
           <button className={s.input === 'external' ? 'sel' : ''} onClick={() => set({ input: 'external' })}>Botones externos (ESP32)</button>
         </div>
-        <div className="row" style={{ marginTop: 10 }}>
-          <span className="muted">Blancas a la:</span>
-          <button className={s.whiteLeft ? 'sel' : ''} onClick={() => set({ whiteLeft: true })}>Izquierda{s.input === 'external' ? ' (A)' : ''}</button>
-          <button className={!s.whiteLeft ? 'sel' : ''} onClick={() => set({ whiteLeft: false })}>Derecha{s.input === 'external' ? ' (L)' : ''}</button>
-        </div>
+        {s.mode === 'lichess' ? (
+          <div className="row" style={{ marginTop: 10 }}>
+            <span className="muted">Mi reloj a la:</span>
+            <button className={s.meLeft ? 'sel' : ''} onClick={() => set({ meLeft: true })}>Izquierda{s.input === 'external' ? ' (A)' : ''}</button>
+            <button className={!s.meLeft ? 'sel' : ''} onClick={() => set({ meLeft: false })}>Derecha{s.input === 'external' ? ' (L)' : ''}</button>
+          </div>
+        ) : (
+          <div className="row" style={{ marginTop: 10 }}>
+            <span className="muted">Blancas a la:</span>
+            <button className={s.whiteLeft ? 'sel' : ''} onClick={() => set({ whiteLeft: true })}>Izquierda{s.input === 'external' ? ' (A)' : ''}</button>
+            <button className={!s.whiteLeft ? 'sel' : ''} onClick={() => set({ whiteLeft: false })}>Derecha{s.input === 'external' ? ' (L)' : ''}</button>
+          </div>
+        )}
         {s.input === 'touch'
           ? <p className="muted" style={{ margin: '8px 0 0' }}>Cada jugador toca <b>su mitad</b> de la pantalla al terminar su jugada. Los toques del lado que no juega se ignoran. Pausa con el botón de arriba.</p>
           : <ButtonTest />}
       </section>
 
-      {s.mode === 'board' && <BoardPanel />}
+      {(s.mode === 'board' || s.mode === 'lichess') && <BoardPanel />}
 
       <section>
         <h2>Pantalla</h2>
@@ -115,7 +126,7 @@ export default function Setup() {
       </section>
 
       <div className="start">
-        <button className="big" onClick={start}>Comenzar partida</button>
+        {s.mode === 'lichess' ? <LichessStart /> : <button className="big" onClick={start}>Comenzar partida</button>}
       </div>
     </div>
   )

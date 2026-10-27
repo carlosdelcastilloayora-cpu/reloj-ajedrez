@@ -37,6 +37,12 @@ button.big { min-height: 88px; font-size: 30px; }
 .setup section { border-top: var(--line) solid var(--ink); padding: 10px 0 14px; }
 .setup h2 { font-size: 20px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; }
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.text { font: inherit; font-size: 22px; min-height: 64px; padding: 6px 12px; border: var(--line) solid var(--ink); border-radius: 10px; min-width: 300px; color: var(--ink); background: var(--paper); }
+a { color: var(--ink); font-weight: 700; }
+a.btnlink { display: flex; align-items: center; justify-content: center; text-decoration: none; border: var(--line) solid var(--ink); border-radius: 10px; min-height: 92px; font-size: 28px; }
+.offer { gap: 8px; margin-bottom: 6px; }
+.offer button { min-height: 48px; font-size: 20px; padding: 4px 12px; }
+.offer .line { border-left: 8px solid var(--accent); padding-left: 8px; }
 .grid-btn { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
 .stepper { display: inline-flex; align-items: center; gap: 8px; margin-right: 18px; }
 .stepper .val { min-width: 92px; text-align: center; font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
