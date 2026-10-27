@@ -37,7 +37,8 @@ function Half({ pos, side }: { pos: ButtonId; side: Side }) {
   const mode = useGame(s => s.settings.mode)
   const pending = useGame(s => s.pending)
   const press = useGame(s => s.press)
-  const online = useGame(s => s.online)
+  const online = useGame(s => s.online ?? s.engineSeat)
+  const thinking = useGame(s => s.thinking)
   const active = (phase === 'running' || phase === 'paused') && turn === side
   const flagged = phase === 'over' && clock.flagged === side
   const act = touch ? 'toca aquí' : `pulsa el botón ${pos === 'left' ? 'A' : 'L'}`
@@ -51,7 +52,7 @@ function Half({ pos, side }: { pos: ButtonId; side: Side }) {
 
   let sub = ''
   if (flagged) sub = 'SIN TIEMPO'
-  else if (active && rival) sub = 'pensando…'
+  else if (active && rival) sub = thinking || !useGame.getState().engineSeat ? 'pensando…' : 'su turno'
   else if (rival) sub = ''
   else if (active && pending) sub = `${display(pending.san)} · ${act} para confirmar`
   else if (active && phase === 'running' && (mode === 'clock' || touch)) sub = `${act} al terminar tu jugada`
@@ -68,7 +69,7 @@ function Half({ pos, side }: { pos: ButtonId; side: Side }) {
   )
 }
 
-function MiniBoard({ placement, bad, marks, flip }: { placement: string; bad: string[]; marks: string[]; flip?: boolean }) {
+export function MiniBoard({ placement, bad, marks, flip }: { placement: string; bad: string[]; marks: string[]; flip?: boolean }) {
   const map = placementMap(placement)
   const cells = []
   for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
@@ -97,7 +98,7 @@ function Status() {
   const expected = placementOf(g.fen)
   const board = g.settings.mode !== 'clock'
   const lm = g.lastMove
-  const on = g.online
+  const on = g.online ?? g.engineSeat
   const rivalMove = !!on && !!lm && lm.color !== on.myColor
 
   let main: JSX.Element
@@ -120,7 +121,7 @@ function Status() {
   } else if (board && g.pending) {
     main = <><div className="line">{g.settings.input === 'touch' ? 'Pendiente — confirma tocando tu lado del reloj' : 'Pendiente — confirma con tu botón'}</div><div className="huge">{display(g.pending.san)}</div></>
   } else if (on && g.turn !== on.myColor && g.phase !== 'over') {
-    main = <><div className="line">Esperando la jugada del rival…</div>
+    main = <><div className="line">{g.engineSeat ? 'Stockfish está pensando…' : 'Esperando la jugada del rival…'}</div>
       {lm && <div className="huge">{lm.num} {display(lm.san)}</div>}</>
   } else if (lm) {
     main = <><div className="line">{rivalMove ? 'Jugó el rival' : 'Última jugada'}</div>
@@ -141,7 +142,7 @@ function Status() {
     <div className="status">
       {showMini && <MiniBoard placement={expected} bad={g.sync === 'mismatch' ? g.diff : []} marks={lm ? [lm.from, lm.to] : []} flip={on?.myColor === 'b'} />}
       <div className="msg">
-        {on && g.phase !== 'over' && <Offers />}
+        {g.online && g.phase !== 'over' && <Offers />}
         {main}
       </div>
       {board && <div className="moves">{pairs.slice(-7).map((p, i) => <div key={i}>{p}</div>)}</div>}
@@ -181,6 +182,7 @@ function TopBar() {
   const toSetup = useGame(st => st.toSetup)
   const b = useBoard()
   const online = useGame(st => st.online)
+  const sf = useGame(st => st.engineSeat)
   const gameNet = useLichess(st => st.gameNet)
   const boardTxt = s.mode === 'clock' ? 'Solo reloj'
     : b.status === 'connected' ? `Tablero ✓${b.battery != null ? ` ${b.battery}%` : ''}`
@@ -191,7 +193,8 @@ function TopBar() {
         ? <button onClick={toSetup}>‹ Ajustes</button>
         : <button onClick={togglePause}>{online ? '☰ Menú (P)' : '❚❚ Pausa (P)'}</button>}
       <div className="info">
-        {online
+        {sf ? `${(sf.myColor === 'w' ? sf.black : sf.white).name} · ${s.baseMin}+${s.incSec}${s.delaySec ? ` d${s.delaySec}` : ''}`
+          : online
           ? `Lichess ${gameNet === 'online' ? '✓' : gameNet === 'offline' || gameNet === 'connecting' ? '· reconectando…' : ''} · ${online.rated ? 'con rating' : 'amistosa'}`
           : `${s.baseMin}+${s.incSec}${s.delaySec ? ` d${s.delaySec}` : ''}`} · {boardTxt}
       </div>

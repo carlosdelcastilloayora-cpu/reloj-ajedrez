@@ -8,7 +8,7 @@ Reloj de ajedrez inteligente para tinta electrónica (Bigme B7) con tablero Ches
 |---|---|---|
 | 1 | Reloj en pantalla + Chessnut Go + botones por teclado | ✅ |
 | 2 | Modo Lichess (IA, retos, lobby) | ✅ |
-| 3 | Modo offline con Stockfish + service worker | pendiente |
+| 3 | Modo offline con Stockfish + service worker | ✅ |
 | 4 | Firmware ESP32 | pendiente |
 | 5 | Historial PGN, importación a Lichess, voz, servo | pendiente |
 
@@ -24,6 +24,8 @@ src/
   lichess/api.ts      cliente Board API: streams ndjson con watchdog, ritmos permitidos, enroque e1h1→e1g1
   lichess/auth.ts     login OAuth PKCE (sin secreto) o token personal
   lichess/online.ts   cuenta, stream de eventos, retos/IA/lobby, stream de la partida, reconexión
+  engine/engine.ts    Stockfish 16 WASM un hilo en Web Worker; NNUE con respaldo a evaluación clásica; bloqueado en línea
+  storage/games.ts    partidas guardadas en IndexedDB
   eink/eink.ts        limpieza negro→blanco, Wake Lock, pantalla completa, pitido
   ui/                 Setup, ClockScreen (dígitos escritos directo al DOM), overlays
 ```
@@ -152,7 +154,48 @@ Cuando la conexión está lista, el panel dice `TuUsuario · en línea`.
 - El tiempo oficial lo lleva Lichess. La app sincroniza con cada actualización del servidor y cuenta hacia atrás entre una y otra.
 - El menú no detiene el reloj, y no se puede deshacer una jugada (solo aceptar el deshacer que pida el rival).
 - Si se desconecta el tablero, el reloj NO se pausa; solo suena un aviso.
-- Durante una partida en línea el motor está bloqueado (`onlineLocked()`). El análisis llegará en la Fase 3, solo para partidas offline.
+- Durante una partida en línea el motor está bloqueado (`onlineLocked()`). El análisis solo existe para partidas offline (Fase 3).
+
+## Cómo probar la Fase 3 (Stockfish sin internet) en la Bigme
+
+**1. Preparar el modo avión** (una sola vez, con Wi-Fi)
+1. Abre la app con conexión y espera un minuto. En segundo plano se descargan el motor y su red neuronal (unos 41 MB).
+2. Entra en *Stockfish (sin internet)*. Cuando todo está guardado, el panel dice **"Listo para modo avión: el motor y su red neuronal están guardados en la tablet"**.
+3. Si dice que la red aún se está descargando, espera un poco más con Wi-Fi.
+
+**2. Partida contra Stockfish**
+1. Activa el **modo avión** de la Bigme y deja encendido solo el Bluetooth.
+2. Abre la app. Debe cargar igual que con internet.
+3. Conecta el Chessnut y elige *Stockfish (sin internet)*.
+4. Configura la partida:
+   - **Fuerza:** *Por nivel* (0–20) o *Por Elo* (1320–3190).
+   - **Color:** blancas, negras o al azar.
+   - **Velocidad de respuesta:** *Rápido (1–2 s)* o *Administrando su reloj*. Con su reloj piensa más en ritmos largos.
+   - **Ritmo:** cualquiera, incluido bullet; admite incremento y demora.
+5. Pulsa *Comenzar contra Stockfish* y toca para empezar. Si Stockfish lleva blancas, juega primero.
+6. Cuando juega Stockfish:
+   - Suena un pitido.
+   - Aparece su jugada en grande y se encienden los LEDs.
+   - Reprodúcela en el tablero; después mueve tú y toca tu lado del reloj.
+7. **Pausa (`P`):** detiene los dos relojes y también a Stockfish. Al reanudar, vuelve a pensar.
+8. **Deshacer** (desde la pausa): retrocede hasta tu turno, quitando su jugada y la tuya. Regresa también las piezas en el tablero.
+
+**3. Al terminar**
+- **Analizar partida:**
+  - Recorre las jugadas con ⏮ ◀ ▶ ⏭.
+  - En cada posición ves la evaluación y la mejor jugada.
+  - *Revisar errores de la partida* marca errores graves (??), errores (?) e imprecisiones (?!).
+- **Partidas guardadas** (en Ajustes): todas las partidas con tablero, contra Stockfish o en Lichess se guardan solas. Desde ahí puedes copiar el PGN, analizar o borrar. La importación a Lichess llega en la Fase 5.
+
+**Juego limpio**
+- Durante una partida de Lichess, Stockfish y el análisis están bloqueados.
+- El análisis también se bloquea mientras tengas partidas de Lichess abiertas, aunque hayas salido de ellas.
+
+**Notas técnicas**
+- La versión del motor es la de un solo hilo (GitHub Pages no permite los headers COOP/COEP del multihilo).
+- La red NNUE se guarda en una caché aparte, `reloj-engine-sf16`. Al publicar versiones nuevas de la app no se vuelve a descargar.
+- Si la red no está disponible, Stockfish se reinicia solo con la evaluación clásica, que es algo más débil, en lugar de quedarse colgado.
+- Para ver la versión compilada con el service worker en la PC, ejecuta `npm run build`, luego `npm run preview` y abre `http://localhost:5181`.
 
 ### Probar desde la PC en la red local (opcional)
 

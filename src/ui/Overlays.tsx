@@ -3,6 +3,7 @@ import { useGame } from '../game/session'
 import { flashScreen } from '../eink/eink'
 import { glyph } from './ClockScreen'
 import { api } from '../lichess/api'
+import AnalysisView from './AnalysisView'
 
 // Menú durante una partida de Lichess: el reloj del servidor NO se detiene
 function OnlineMenu() {
@@ -56,7 +57,7 @@ export function PauseMenu() {
       <h2>Pausa</h2>
       <div className="menu">
         <button onClick={g.togglePause}>▶ Reanudar (P)</button>
-        <button onClick={g.undo} disabled={!canUndo}>↶ Deshacer jugada</button>
+        <button onClick={g.undo} disabled={!canUndo}>↶ {g.engineSeat ? 'Deshacer mi última jugada' : 'Deshacer jugada'}</button>
         <button onClick={flashScreen}>Limpiar pantalla</button>
         <button onClick={() => setEnding(true)}>Terminar partida</button>
         <button onClick={g.toSetup}>Abandonar y ajustes</button>
@@ -89,6 +90,7 @@ export function Promotion() {
 export function GameOver() {
   const g = useGame()
   const [copied, setCopied] = useState(false)
+  const [analyse, setAnalyse] = useState(false)
   const pgn = g.settings.mode !== 'clock' ? g.pgn() : ''
   const copy = async () => {
     try { await navigator.clipboard.writeText(pgn); setCopied(true) } catch { setCopied(false) }
@@ -104,7 +106,9 @@ export function GameOver() {
           : <button onClick={g.newGame}>Revancha (mismo ritmo)</button>}
         <button onClick={g.toSetup}>Ajustes</button>
         {pgn && <button onClick={copy}>{copied ? 'PGN copiado ✓' : 'Copiar PGN'}</button>}
+        {pgn && !g.online && <button onClick={() => setAnalyse(true)}>Analizar partida</button>}
       </div>
+      {analyse && <AnalysisView pgn={pgn} onClose={() => setAnalyse(false)} />}
     </div>
   )
 }

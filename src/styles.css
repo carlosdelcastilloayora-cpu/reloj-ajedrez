@@ -105,6 +105,20 @@ a.btnlink { display: flex; align-items: center; justify-content: center; text-de
 .promo button { min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
 .promo .glyph { font-size: 76px; line-height: 1; }
 
+/* ── Análisis ── */
+.overlay.analysis { flex-direction: row; align-items: stretch; justify-content: flex-start; gap: 20px; }
+.an-board { height: min(calc(100vh - 40px), 60vw); aspect-ratio: 1; flex: none; }
+.an-board .mini { height: 100%; width: 100%; }
+.an-board .mini > div { font-size: calc(min(calc(100vh - 40px), 60vw) / 8 * 0.78); }
+.an-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.an-side .huge { font-size: 56px; font-weight: 800; }
+.an-side .line { font-size: 22px; font-weight: 700; }
+.an-side .nav button { min-width: 80px; font-size: 30px; }
+.an-moves { flex: 1; overflow-y: auto; border-top: var(--line) solid var(--ink); padding-top: 6px; font-size: 21px; }
+.an-pair { display: flex; gap: 14px; padding: 3px 0; }
+.an-pair span { cursor: pointer; padding: 0 6px; }
+.an-pair span.cur { background: var(--ink); color: var(--paper); }
+
 @media (max-width: 700px) {
   .status .moves { display: none; }
   .overlay .menu { grid-template-columns: 1fr; }

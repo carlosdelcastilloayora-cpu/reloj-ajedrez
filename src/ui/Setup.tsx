@@ -2,6 +2,8 @@ import { useGame } from '../game/session'
 import { enterFullscreen } from '../eink/eink'
 import BoardPanel from './BoardPanel'
 import LichessPanel, { LichessStart } from './LichessPanel'
+import EnginePanel from './EnginePanel'
+import SavedGames from './SavedGames'
 import { useEffect, useState } from 'react'
 import { listenButtons, type ButtonId } from '../input/keys'
 
@@ -59,11 +61,12 @@ export default function Setup() {
           <button className={s.mode === 'board' ? 'sel' : ''} onClick={() => set({ mode: 'board' })}>Dos jugadores con tablero</button>
           <button className={s.mode === 'clock' ? 'sel' : ''} onClick={() => set({ mode: 'clock' })}>Solo reloj</button>
           <button className={s.mode === 'lichess' ? 'sel' : ''} onClick={() => set({ mode: 'lichess' })}>Lichess (en línea)</button>
-          <button disabled>Stockfish (fase 3)</button>
+          <button className={s.mode === 'engine' ? 'sel' : ''} onClick={() => set({ mode: 'engine' })}>Stockfish (sin internet)</button>
         </div>
       </section>
 
       {s.mode === 'lichess' && <LichessPanel />}
+      {s.mode === 'engine' && <EnginePanel />}
 
       <section>
         <h2>Ritmo: {s.baseMin}+{s.incSec}{s.delaySec && s.mode !== 'lichess' ? ` · demora ${s.delaySec}s` : ''}</h2>
@@ -86,7 +89,7 @@ export default function Setup() {
           <button className={s.input === 'touch' ? 'sel' : ''} onClick={() => set({ input: 'touch' })}>En la pantalla de la tablet</button>
           <button className={s.input === 'external' ? 'sel' : ''} onClick={() => set({ input: 'external' })}>Botones externos (ESP32)</button>
         </div>
-        {s.mode === 'lichess' ? (
+        {s.mode === 'lichess' || s.mode === 'engine' ? (
           <div className="row" style={{ marginTop: 10 }}>
             <span className="muted">Mi reloj a la:</span>
             <button className={s.meLeft ? 'sel' : ''} onClick={() => set({ meLeft: true })}>Izquierda{s.input === 'external' ? ' (A)' : ''}</button>
@@ -104,7 +107,7 @@ export default function Setup() {
           : <ButtonTest />}
       </section>
 
-      {(s.mode === 'board' || s.mode === 'lichess') && <BoardPanel />}
+      {s.mode !== 'clock' && <BoardPanel />}
 
       <section>
         <h2>Pantalla</h2>
@@ -125,8 +128,10 @@ export default function Setup() {
         </div>
       </section>
 
+      <SavedGames />
+
       <div className="start">
-        {s.mode === 'lichess' ? <LichessStart /> : <button className="big" onClick={start}>Comenzar partida</button>}
+        {s.mode === 'lichess' ? <LichessStart /> : <button className="big" onClick={start}>{s.mode === 'engine' ? 'Comenzar contra Stockfish' : 'Comenzar partida'}</button>}
       </div>
     </div>
   )

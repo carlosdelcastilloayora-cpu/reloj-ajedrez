@@ -7,9 +7,11 @@ import { beep, flashScreen, keepAwake } from '../eink/eink'
 import type { ButtonId } from '../input/keys'
 import { api, uciToMove, type Opponent } from '../lichess/api'
 import { stopGame } from '../lichess/online'
+import { engine, setEngineLock } from '../engine/engine'
+import { saveGame } from '../storage/games'
 
 // ── Ajustes (persisten en localStorage) ──
-export type Mode = 'board' | 'clock' | 'lichess'
+export type Mode = 'board' | 'clock' | 'lichess' | 'engine'
 // Dónde se pulsa el reloj: 'touch' = en la propia tablet (tocar tu mitad de la pantalla);
 // 'external' = botones ESP32 (teclado BLE). El teclado funciona en ambos modos (útil para probar).
 export type InputMode = 'touch' | 'external'
@@ -31,6 +33,12 @@ export interface Settings {
   lcUser: string          // usuario o bot a retar
   lcColor: 'random' | 'white' | 'black'
   lcRated: boolean
+  // Stockfish (sin internet)
+  sfStrength: 'skill' | 'elo'
+  sfSkill: number         // Skill Level 0–20
+  sfElo: number           // UCI_Elo 1320–3190
+  sfColor: 'random' | 'white' | 'black'
+  sfFast: boolean         // true = responde en 1–2 s; false = administra su propio reloj
 }
 
 const SETTINGS_KEY = 'reloj.settings'
@@ -38,6 +46,7 @@ const DEFAULTS: Settings = {
   mode: 'board', baseMin: 10, incSec: 5, delaySec: 0, whiteLeft: true, input: 'touch',
   flashAfterMove: false, flashEverySec: 0, leds: true, spanish: true,
   meLeft: true, lcOpponent: 'ai', lcLevel: 3, lcUser: '', lcColor: 'random', lcRated: false,
+  sfStrength: 'skill', sfSkill: 5, sfElo: 1500, sfColor: 'white', sfFast: true,
 }
 function loadSettings(): Settings {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') } } catch { return DEFAULTS }
@@ -54,9 +63,9 @@ export type Sync = 'ok' | 'pending' | 'mismatch' | 'nodata'
 export interface Pending { from: string; to: string; san: string; uci: string; needsChoice: boolean }
 export interface LastMove { from: string; to: string; san: string; num: string; color: Side }
 export interface PlayerInfo { name: string; rating?: number }
-export interface OnlineInfo {
-  gameId: string; myColor: Side; white: PlayerInfo; black: PlayerInfo; rated: boolean; speed: string
-}
+/** Partida de un humano contra un rival remoto (Lichess o Stockfish). */
+export interface Seat { myColor: Side; white: PlayerInfo; black: PlayerInfo }
+export interface OnlineInfo extends Seat { gameId: string; rated: boolean; speed: string }
 
 interface GameStore {
   settings: Settings
@@ -77,6 +86,8 @@ interface GameStore {
   online: OnlineInfo | null  // partida de Lichess en curso
   offer: { draw: boolean; takeback: boolean }   // ofertas del rival (Lichess)
   opponentGone: { claimAt: number } | null      // rival desconectado: se puede reclamar desde claimAt
+  engineSeat: Seat | null    // partida contra Stockfish
+  thinking: boolean          // Stockfish está pensando
 
   setSettings: (p: Partial<Settings>) => void
   newGame: () => void
@@ -88,6 +99,7 @@ interface GameStore {
   finish: (result: string, reason: string) => void
   onPlacement: () => void
   pgn: () => string
+  history: () => Move[]
   onlineFull: (full: any, myId: string) => void
   onlineState: (st: any, initial?: boolean) => void
   onlineOpponentGone: (msg: any) => void
@@ -101,6 +113,8 @@ let _ledKey = ''
 let _initialFen = DEFAULT_POSITION
 let _serverCount = 0          // jugadas confirmadas por el servidor
 let _lastState: any = null    // último gameState (para resincronizar si una jugada falla)
+// Stockfish
+let _think = 0                // ficha de la búsqueda vigente (las anteriores se descartan)
 
 const display = (san: string) => (useGame.getState().settings.spanish ? sanEs(san) : san)
 
@@ -165,6 +179,42 @@ function commit(m: { from: string; to: string; promotion?: string }) {
   } else checkGameEnd()                 // en línea el fin de partida lo decide el servidor
   // re-evaluar con la última lectura (por si el tablero ya va por delante)
   useGame.getState().onPlacement()
+  maybeEngine()
+}
+
+// ── Stockfish ──
+/** Si es turno de Stockfish, lanza la búsqueda y juega su respuesta. */
+function maybeEngine() {
+  const s = useGame.getState()
+  const seat = s.engineSeat
+  if (s.settings.mode !== 'engine' || !seat || s.phase !== 'running' || s.turn === seat.myColor) return
+  const token = ++_think
+  const side = s.turn
+  useGame.setState({ thinking: true })
+  const ucis = _chess.history({ verbose: true }).map(m => m.from + m.to + (m.promotion ?? ''))
+  const position = ucis.length ? `position startpos moves ${ucis.join(' ')}` : 'position startpos'
+  const inc = clock.cfg.incMs
+  const go = s.settings.sfFast
+    ? `go movetime ${700 + Math.floor(Math.random() * 1300)}`
+    : `go wtime ${Math.round(clock.get('w'))} btime ${Math.round(clock.get('b'))} winc ${inc} binc ${inc}`
+  engine.search(position, go).then(r => {
+    if (token !== _think) return          // búsqueda cancelada (pausa, deshacer, fin…)
+    useGame.setState({ thinking: false })
+    const g = useGame.getState()
+    if (g.phase !== 'running' || g.turn !== side || !r.bestmove) return
+    commit(uciToMove(_chess, r.bestmove))
+    beep(880, 150)                        // aviso: jugó Stockfish
+  }).catch(e => {
+    if (token !== _think) return
+    useGame.setState({ thinking: false })
+    notice(`Stockfish: ${e.message}`)
+  })
+}
+
+function cancelEngine() {
+  if (useGame.getState().thinking) engine.stop()
+  _think++
+  useGame.setState({ thinking: false })
 }
 
 export const useGame = create<GameStore>((set, get) => ({
@@ -186,6 +236,8 @@ export const useGame = create<GameStore>((set, get) => ({
   online: null,
   offer: { draw: false, takeback: false },
   opponentGone: null,
+  engineSeat: null,
+  thinking: false,
 
   setSettings: (p) => {
     const settings = { ...get().settings, ...p }
@@ -201,10 +253,27 @@ export const useGame = create<GameStore>((set, get) => ({
     _chess.setHeader('TimeControl', `${settings.baseMin * 60}+${settings.incSec}`)
     clock.reset({ baseMs: settings.baseMin * 60000, incMs: settings.incSec * 1000, delayMs: settings.delaySec * 1000 })
     _ledKey = ''
+    cancelEngine()
+    let engineSeat: Seat | null = null
+    let leftSide: Side = settings.whiteLeft ? 'w' : 'b'
+    if (settings.mode === 'engine') {
+      const myColor: Side = settings.sfColor === 'white' ? 'w' : settings.sfColor === 'black' ? 'b' : Math.random() < 0.5 ? 'w' : 'b'
+      const sf: PlayerInfo = {
+        name: settings.sfStrength === 'elo' ? `Stockfish ${settings.sfElo}` : `Stockfish nivel ${settings.sfSkill}`,
+        rating: settings.sfStrength === 'elo' ? settings.sfElo : undefined,
+      }
+      const me: PlayerInfo = { name: 'Yo' }
+      engineSeat = { myColor, white: myColor === 'w' ? me : sf, black: myColor === 'w' ? sf : me }
+      leftSide = settings.meLeft ? myColor : other(myColor)
+      engine.setStrength({ kind: settings.sfStrength, skill: settings.sfSkill, elo: settings.sfElo })
+      engine.warmup()
+    }
+    _chess.setHeader('White', engineSeat?.white.name ?? 'Blancas')
+    _chess.setHeader('Black', engineSeat?.black.name ?? 'Negras')
     set({
       phase: 'ready', fen: _chess.fen(), turn: 'w', moves: [], lastMove: null, pending: null,
       promoChoice: null, sync: 'nodata', diff: [], result: null, reason: null, notice: null, clockMoves: 0,
-      leftSide: settings.whiteLeft ? 'w' : 'b', online: null, offer: { draw: false, takeback: false }, opponentGone: null,
+      leftSide, online: null, offer: { draw: false, takeback: false }, opponentGone: null, engineSeat, thinking: false,
     })
     get().onPlacement()
     keepAwake(true)
@@ -212,6 +281,7 @@ export const useGame = create<GameStore>((set, get) => ({
 
   toSetup: () => {
     if (get().online) stopGame()      // la partida de Lichess sigue en el servidor; se puede retomar
+    cancelEngine()
     clock.stop()
     keepAwake(false)
     setLedsIfChanged([])
@@ -224,11 +294,12 @@ export const useGame = create<GameStore>((set, get) => ({
     if (b === 'menu') { s.togglePause(); return }
     const side: Side = b === 'left' ? s.leftSide : other(s.leftSide)
 
-    if (s.settings.mode === 'lichess') {
-      const on = s.online
-      if (!on || s.phase !== 'running' || s.promoChoice) return
-      if (side !== on.myColor) return          // el lado del rival no tiene botón: juega Lichess
-      if (s.turn !== on.myColor) { notice('Es turno del rival'); return }
+    const seat = s.settings.mode === 'lichess' ? s.online : s.settings.mode === 'engine' ? s.engineSeat : null
+    if (seat && s.phase !== 'ready') {
+      const on = seat
+      if (s.phase !== 'running' || s.promoChoice) return
+      if (side !== on.myColor) return          // el lado del rival no tiene botón: juega Lichess / Stockfish
+      if (s.turn !== on.myColor) { notice(s.engineSeat ? 'Piensa Stockfish' : 'Es turno del rival'); return }
       get().onPlacement()
       const p = get().pending
       if (!p) { notice(get().sync === 'mismatch' ? 'El tablero no coincide' : 'Primero mueve en el tablero'); return }
@@ -238,12 +309,13 @@ export const useGame = create<GameStore>((set, get) => ({
     }
 
     if (s.phase === 'ready') {
-      if (s.settings.mode === 'board' && s.sync !== 'ok') {
+      if ((s.settings.mode === 'board' || s.settings.mode === 'engine') && s.sync !== 'ok') {
         notice(s.sync === 'nodata' ? 'Conecta el tablero' : 'Coloca las piezas en la posición inicial')
         return
       }
       clock.start('w')            // cualquiera de los dos botones arranca el reloj de las blancas
       set({ phase: 'running', turn: 'w' })
+      maybeEngine()               // si Stockfish lleva blancas, empieza a pensar
       return
     }
     if (s.phase !== 'running' || s.promoChoice) return
@@ -282,8 +354,8 @@ export const useGame = create<GameStore>((set, get) => ({
       else if (phase === 'paused') { set({ phase: 'running' }); get().onPlacement() }
       return
     }
-    if (phase === 'running') { clock.pause(); set({ phase: 'paused' }) }
-    else if (phase === 'paused') { clock.resume(); set({ phase: 'running' }); get().onPlacement() }
+    if (phase === 'running') { cancelEngine(); clock.pause(); set({ phase: 'paused' }) }
+    else if (phase === 'paused') { clock.resume(); set({ phase: 'running' }); get().onPlacement(); maybeEngine() }
   },
 
   undo: () => {
@@ -295,12 +367,28 @@ export const useGame = create<GameStore>((set, get) => ({
       set({ turn: other(s.turn), clockMoves: s.clockMoves - 1 })
       return
     }
-    const m = _chess.undo()
+    let m: Move | null
+    if (s.engineSeat) {
+      // Contra Stockfish se deshace hasta volver a MI turno (su jugada y la mía)
+      cancelEngine()
+      const me = s.engineSeat.myColor
+      const undone: Move[] = []
+      while (_chess.history().length && (undone.length === 0 || (_chess.turn() as Side) !== me)) {
+        const u = _chess.undo()
+        if (!u) break
+        undone.push(u)
+      }
+      if ((_chess.turn() as Side) !== me) {           // no había jugada mía que deshacer
+        for (const u of undone.reverse()) _chess.move(u)
+        return
+      }
+      m = undone[undone.length - 1] ?? null
+    } else m = _chess.undo()
     if (!m) return
     const hist = _chess.history({ verbose: true })
     const prev = hist[hist.length - 1]
     const n = Math.ceil(hist.length / 2)
-    clock.setTurn(m.color as Side)
+    clock.setTurn(_chess.turn() as Side)
     set({
       fen: _chess.fen(), turn: _chess.turn() as Side, moves: _chess.history(), pending: null, promoChoice: null,
       lastMove: prev ? { from: prev.from, to: prev.to, san: prev.san, num: prev.color === 'w' ? `${n}.` : `${n}…`, color: prev.color as Side } : null,
@@ -309,11 +397,24 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   finish: (result, reason) => {
+    cancelEngine()
     clock.stop()
     keepAwake(false)
     _chess.setHeader('Result', result)
     set({ phase: 'over', result, reason, pending: null, promoChoice: null })
     beep(660, 250, 2)
+    // Guardar la partida en la tablet (IndexedDB)
+    const s = get()
+    if (s.settings.mode !== 'clock' && _chess.history().length > 0) {
+      const h = _chess.getHeaders()
+      saveGame({
+        id: Date.now(), date: new Date().toISOString(),
+        source: s.settings.mode === 'lichess' ? 'lichess' : s.settings.mode === 'engine' ? 'engine' : 'board',
+        white: h.White ?? 'Blancas', black: h.Black ?? 'Negras', result, reason,
+        timeControl: s.online ? s.online.speed : `${s.settings.baseMin}+${s.settings.incSec}`,
+        pgn: _chess.pgn(), lichessUrl: s.online ? `https://lichess.org/${s.online.gameId}` : undefined,
+      })
+    }
   },
 
   // Reevalúa el tablero físico contra la partida (lo llama el Chessnut tras el debounce,
@@ -336,7 +437,8 @@ export const useGame = create<GameStore>((set, get) => ({
     }
     // En Lichess solo se detecta jugada propia en tu turno; en el del rival el tablero debe
     // quedarse quieto (o reproducir su jugada).
-    const myTurn = s.settings.mode !== 'lichess' || (!!s.online && s.turn === s.online.myColor)
+    const seat = s.settings.mode === 'lichess' ? s.online : s.settings.mode === 'engine' ? s.engineSeat : null
+    const myTurn = s.settings.mode === 'board' || (!!seat && s.turn === seat.myColor)
     if ((s.phase === 'running' || s.phase === 'paused') && myTurn) {
       const m = findMove(s.fen, placement)
       if (m) {
@@ -357,6 +459,7 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   pgn: () => _chess.pgn(),
+  history: () => _chess.history({ verbose: true }),
 
   // ── Lichess ──
   onlineFull: (full, myId) => {
@@ -375,7 +478,7 @@ export const useGame = create<GameStore>((set, get) => ({
     }
     if (s.settings.mode !== 'lichess') s.setSettings({ mode: 'lichess' })
     set({
-      online, phase: 'running', leftSide: s.settings.meLeft ? myColor : other(myColor),
+      online, engineSeat: null, thinking: false, phase: 'running', leftSide: s.settings.meLeft ? myColor : other(myColor),
       result: null, reason: null, pending: null, promoChoice: null, opponentGone: null,
       ...(same ? {} : { sync: 'nodata' as Sync, diff: [], lastMove: null }),
     })
@@ -466,7 +569,7 @@ useBoard.subscribe((b, prev) => {
   if (b.status === prev.status) return
   const g = useGame.getState()
   // Tablero caído a mitad de partida (modo tablero) → pausa automática para no perder tiempo
-  if (b.status !== 'connected' && g.phase === 'running' && g.settings.mode === 'board') {
+  if (b.status !== 'connected' && g.phase === 'running' && (g.settings.mode === 'board' || g.settings.mode === 'engine')) {
     g.togglePause()
     notice('Tablero desconectado: reloj en pausa')
     beep(440, 300)
@@ -481,8 +584,11 @@ clock.onFlag((side) => {
   const g = useGame.getState()
   if (g.phase !== 'running' || g.settings.mode === 'lichess') return   // en línea decide el servidor
   const winner = other(side)
-  if (g.settings.mode === 'board' && cannotMate(winner)) g.finish('1/2-1/2', 'Tiempo agotado; el rival no puede dar mate')
+  if ((g.settings.mode === 'board' || g.settings.mode === 'engine') && cannotMate(winner)) g.finish('1/2-1/2', 'Tiempo agotado; el rival no puede dar mate')
   else g.finish(winner === 'w' ? '1-0' : '0-1', `Tiempo agotado (${side === 'w' ? 'blancas' : 'negras'})`)
 })
 
 export { display }
+
+// Juego limpio: el motor no funciona mientras haya una partida de Lichess en curso
+setEngineLock(onlineLocked)
